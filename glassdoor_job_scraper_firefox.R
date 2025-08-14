@@ -16,7 +16,8 @@ tryCatch({
     browser = "firefox",
     chromever = NULL,
     port = port_number,
-    verbose = FALSE
+    verbose = FALSE,
+    check = FALSE
   )
   remDr <- remote_Driver$client
   
