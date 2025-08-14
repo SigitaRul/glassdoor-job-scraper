@@ -1,7 +1,7 @@
 # glassdoor-job-scraper
 R script that uses RSelenium with Firefox to scrape job listings from Glassdoor, extracting titles, employers, locations, skills, and ratings.
 
-# MINIMAL PREREQUISITES
+# Prerequisites
 **System**
 
 - Windows 10/11 (64-bit)
