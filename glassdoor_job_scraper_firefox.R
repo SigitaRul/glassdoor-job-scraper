@@ -5,7 +5,7 @@ library(RSelenium)
 library(netstat)
 library(purrr)
 
-# Cleanup existing processes (Windows)
+# Cleanup existing processes
 system("taskkill /im java.exe /f /t", show.output.on.console = FALSE)
 system("taskkill /im geckodriver.exe /f /t", show.output.on.console = FALSE)
 
@@ -16,103 +16,94 @@ tryCatch({
     browser = "firefox",
     chromever = NULL,
     port = port_number,
-    verbose = FALSE,
-    check = FALSE
+    verbose = FALSE
   )
   remDr <- remote_Driver$client
   
   # Navigate to target page
   remDr$navigate("https://www.glassdoor.de/Job/data-analyst-jobs-SRCH_KO0,12.htm")
+  Sys.sleep(3)
   
-  # Expand job listings
-  try({
-    show_more_btn <- remDr$findElement("css", "button[data-test='show-more-cta']")
-    remDr$executeScript("arguments[0].scrollIntoView({behavior: 'smooth'});", list(show_more_btn))
-    remDr$executeScript("arguments[0].click();", list(show_more_btn))
-    Sys.sleep(2)
-  }, silent = TRUE)
+  # Initialize control variables
+  popup_closed <- FALSE
+  page_counter <- 1
   
-  # Extract job titles (first 5)
-  job_titles <- remDr$findElements(
-    "css", 
-    "a[data-test='job-title']"
-  ) %>% 
-    map_chr(~try(.x$getElementText()[[1]], silent = TRUE)) %>%
-    discard(is.null) %>%
-    head(5)
-  
-  # Extract job employers (first 5)
-  job_employers <- remDr$findElements(
-    "css", 
-    "span.EmployerProfile_compactEmployerName__9MGcV"
-  ) %>% 
-    map_chr(~try(.x$getElementText()[[1]], silent = TRUE)) %>%
-    discard(is.null) %>%
-    head(5)
-  
-  # Extract job locations (first 5)
-  job_locations <- remDr$findElements(
-    "css", 
-    "div.JobCard_location__Ds1fM[data-test='emp-location']"
-  ) %>% 
-    map_chr(~try(.x$getElementText()[[1]], silent = TRUE)) %>%
-    discard(is.null) %>%
-    head(5)
-  
-  # Extract skills (first 5)
-  job_skills <- remDr$findElements(
-    "css", 
-    "div.JobCard_jobDescriptionSnippet__l1tnl div:nth-of-type(2)"
-  ) %>% 
-    map_chr(~try(.x$getElementText()[[1]], silent = TRUE)) %>%
-    discard(is.null) %>%
-    head(5) %>%
-    gsub("Kenntnisse und Fähigkeiten: ", "", .)
-  
-  # Extract company ratings (first 5)
-  job_ratings <- remDr$findElements(
-    "css", 
-    "span.rating-single-star_RatingText__XENmU"
-  ) %>% 
-    map_chr(~try(.x$getElementText()[[1]], silent = TRUE)) %>%
-    discard(is.null) %>%
-    head(5)
-  
-  # Ensure equal length for all vectors
-  max_length <- max(length(job_titles), length(job_employers), 
-                    length(job_locations), length(job_skills), length(job_ratings))
-  job_ratings <- head(c(job_ratings, rep(NA, max_length)), max_length)
-  
-  # Combine and print results
-  if(length(job_titles) > 0) {
-    cat("\nFirst 5 Job Listings:\n")
+  # Continuous loading loop with safe handling
+  while(TRUE) {
+    # Check for load more button with error handling
+    load_more <- tryCatch({
+      remDr$findElement("css", "button[data-test='load-more']")
+    }, error = function(e) NULL)
     
-    job_data <- data.frame(
-      Title = head(job_titles, 5),
-      Employer = head(job_employers, 5),
-      Location = head(job_locations, 5),
-      Skills = head(job_skills, 5),
-      Rating = head(job_ratings, 5),
-      stringsAsFactors = FALSE
-    )
-    
-    # Print formatted results
-    for(i in 1:nrow(job_data)) {
-      cat(paste0("- ", job_data$Title[i], " | ", 
-                 job_data$Employer[i], " | ", 
-                 job_data$Location[i], "\n",
-                 "  Rating: ", ifelse(is.na(job_data$Rating[i]), "N/A", job_data$Rating[i]), 
-                 " | Skills: ", job_data$Skills[i], "\n\n"))
+    # Exit condition when button not found
+    if(is.null(load_more)) {
+      message("\nReached end of job listings")
+      break
     }
     
-  } else {
-    message("No job listings found")
+    # Click load more button
+    try({
+      remDr$executeScript("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", list(load_more))
+      remDr$executeScript("arguments[0].click();", list(load_more))
+      page_counter <- page_counter + 1
+      message("Loaded page ", page_counter)
+    }, silent = TRUE)
+    
+    # Handle popup once after first load
+    if (!popup_closed && page_counter == 2) {
+      try({
+        Sys.sleep(1.5)
+        close_btn <- remDr$findElement("css", "button.CloseButton")
+        remDr$executeScript("arguments[0].click();", list(close_btn))
+        popup_closed <- TRUE
+        message("Popup closed successfully")
+      }, silent = TRUE)
+    }
+    
+    # Randomized delay with content wait
+    Sys.sleep(runif(1, 3, 5))
   }
   
+  # Final content stabilization
+  Sys.sleep(3)
+  remDr$executeScript("window.scrollTo(0, document.body.scrollHeight)")
+  Sys.sleep(1)
+  
+  # Extraction function with error handling
+  extract_text <- function(css) {
+    remDr$findElements("css", css) %>% 
+      map_chr(~try(.x$getElementText()[[1]], silent = TRUE)) %>% 
+      discard(is.null)
+  }
+  
+  # Get all job data
+  titles <- extract_text("a[data-test='job-title']")
+  employers <- extract_text("span.EmployerProfile_compactEmployerName__9MGcV")
+  locations <- extract_text("div.JobCard_location__Ds1fM")
+  skills <- extract_text("div.JobCard_jobDescriptionSnippet__l1tnl div:nth-of-type(2)") %>% 
+    gsub("Kenntnisse und Fähigkeiten: ", "", .)
+  ratings <- extract_text("span.rating-single-star_RatingText__XENmU") %>% 
+    gsub(",", ".", .) %>% as.numeric()
+  
+  # Create aligned data frame
+  max_len <- max(length(titles), length(employers), length(locations), length(skills), length(ratings))
+  job_data <- data.frame(
+    Title = c(titles, rep(NA, max_len - length(titles))),
+    Employer = c(employers, rep(NA, max_len - length(employers))),
+    Location = c(locations, rep(NA, max_len - length(locations))),
+    Skills = c(skills, rep(NA, max_len - length(skills))),
+    Rating = c(ratings, rep(NA, max_len - length(ratings))),
+    stringsAsFactors = FALSE
+  )
+  
+  # Save results
+  write.csv(job_data, "glassdoor_jobs.csv", row.names = FALSE)
+  message("\nSuccessfully saved ", nrow(job_data), " jobs to glassdoor_jobs.csv")
+  
 }, error = function(e) {
-  message("Script failed: ", e$message)
+  message("Script error: ", e$message)
 }, finally = {
   if(exists("remDr")) try(remDr$close(), silent = TRUE)
   if(exists("remote_Driver")) try(remote_Driver$server$stop(), silent = TRUE)
-  Sys.sleep(1)
+  message("Session closed")
 })
