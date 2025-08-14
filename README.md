@@ -21,3 +21,16 @@ This script is for **educational purposes only**.
 - netstat
 - purrr
 - wdman and binman (for driver management)
+
+**Script Features**
+- Automates Firefox via RSelenium to open Glassdoor
+- Expands job listings (clicks "Show More" if available)
+- Extracts:
+
+    - Job Title
+    - Employer
+    - Location
+    - Skills
+    - Rating
+
+- Outputs the first 5 results in a clean format
